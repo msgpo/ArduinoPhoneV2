@@ -777,6 +777,8 @@ void UI_ArduinoPhone::getTime()
     minute  = __time_num(str[j+12], str[j+13]);
     second  = __time_num(str[j+15], str[j+16]);
     str[i] = '\0';
+    
+    Serial1.flush();
     enableTimer();
 }
 

@@ -1,9 +1,9 @@
 /*
-  Demo.ino
+  ArduinoPhoneV2 Source Code
 
   Author:Loovee
 
-  2013-9-10
+  2016-1-25
   
   The MIT License (MIT)
   
@@ -33,6 +33,7 @@
 #include "phone.h"
 #include "UI_ArduinoPhone_dfs.h"
 #include "UI_ArduinoPhone.h"
+
 
 // serial data
 char serialDta[100];
@@ -113,38 +114,61 @@ void stateMachine()
     switch(UI.state)
     {
         //***************************************main page*************************
+        case ST_SLEEP:
         
-        case ST_IDLE:
+        Serial.println("----------------STATE: SLEEP----------------");
         
-        digitalWrite(7, LOW);
         while(1)
         {
-            if(UI.isTouch())break;
-            delay(10);
+            if(0 == digitalRead(2))
+            {
+                delay(20);
+                if(0 == digitalRead(2))
+                {
+                    UI.state_buf = ST_SLEEP;
+                    UI.state = ST_TIME;
+                    
+                    for(int i=0; i<5; i++)
+                    {
+                        while(0 == digitalRead(2));
+                        delay(5);
+                    }
+                    break;
+                }
+            }
+            
+            if(serialGot)
+            {
+                disableTimer();
+                if(checkMsgCall(ST_TIME)){ enableTimer();break;}
+                enableTimer();
+            }
         }
-        digitalWrite(7, HIGH);
-        UI.state = ST_TIME;
         
+        Serial.println("light on, WAKE UP");
+        blOn();
         break;
+        
         case ST_TIME:
-
+        Serial.println("----------------STATE: TIME-----------------");
         Tft.fillScreen();
         UI.getTime();
         UI.drawTimeDate(25, 90);
         UI.showMainPage();
-        time1 = millis();
+        time1 = millis()-1001;
         
         while(1)
         {
             // get call
-            
-            if(millis()-timer_s > 10000)
+            if(blProcess())
             {
-                UI.state = ST_IDLE;
+                UI.state = ST_SLEEP;
+                UI.state_buf = ST_TIME;
                 return;
             }
             
             long time = millis();
+            
             if(time - time1 > 1000)
             {
                 time1 = time;
@@ -154,6 +178,7 @@ void stateMachine()
                     UI.drawTimeDate(25, 90);
                 }
             }
+            
             if(serialGot)
             {
                 disableTimer();
@@ -177,6 +202,7 @@ void stateMachine()
                     break;
                 }
             }
+            
             if(Serial.available())break;
         }
 
@@ -184,7 +210,8 @@ void stateMachine()
 
         //***************************************phone*****************************
         case ST_CALL:
-
+        Serial.println("----------------STATE: CALL-----------------");
+        blClear();
         if(UI.state_buf == ST_MSG)
         {
             UI.drawDialogBox();
@@ -197,7 +224,7 @@ void stateMachine()
             UI.showPageKB();
             UI.showCall();
         }
-
+    
         while(1)
         {
             if(UI.isTouch())
@@ -211,15 +238,25 @@ void stateMachine()
                         if(checkMsgCall(ST_CALL))break;
                     }
                     if(UI.state != ST_CALL)break;
+                    
+                    blProcess();
                 }
+                
+                
             }
-            if(serialGot){
+            
+            if(serialGot)
+            {
                 disableTimer();
-                if(checkMsgCall(ST_CALL)){enableTimer();break;}
+                if(checkMsgCall(ST_CALL))
+                {
+                    enableTimer();
+                    break;
+                }
                 enableTimer();
             }
             // check if call in or msg
-
+            blProcess();
             if(UI.state != ST_CALL)break;
         }
 
@@ -229,6 +266,7 @@ void stateMachine()
 
         //***************************************make phone calling***************
         case ST_CALLING:
+        Serial.println("----------------STATE: CALLING--------------");
         Tft.fillScreen();
         Tft.drawString("calling...", 20, 100, 3, WHITE);
         Tft.fillRectangle(10, 200, 230, 50, GRAY1);
@@ -270,7 +308,7 @@ void stateMachine()
         break;
         //***************************************get call*************************
         case ST_GETCALL:
-
+        Serial.println("----------------STATE: GETCALL--------------");
         Tft.fillScreen();
         Tft.drawString("calling...", 20, 100, 2, WHITE);
         Tft.fillRectangle(10, 200, 100, 50, GRAY1);
@@ -321,7 +359,7 @@ void stateMachine()
         //***************************************message***************************
         case ST_MSG:
 
-
+        Serial.println("----------------STATE: MSG------------------");
         if(UI.state_buf == ST_CALL)
         {
             UI.drawMsgDialogBox();
@@ -368,7 +406,7 @@ void stateMachine()
 
         //***************************************message sending*******************
         case ST_SENDSMS:
-
+        Serial.println("----------------STATE: SENDSMS--------------");
         Tft.fillScreen();
         Tft.drawString("SMS Sending", 20, 120, 3, WHITE);
         while(1)
@@ -386,7 +424,7 @@ void stateMachine()
         break;
         //**************************************get msg******************************
         case ST_GETSMS:
-
+        Serial.println("----------------STATE: GETSMS---------------");
         UI.drawReadMsgPage();
         // get new msg
 
@@ -416,9 +454,14 @@ void stateCall()
     long timercall = millis();
     UI.getTouch(&button);
     long t = millis();
+    
+    if(TOUCH_NOTHING != button)
+    {
+        blClear();
+    }
+    
     if(button>0 && button<10)
     {
-
         UI.callAdd(button);
     }
     else if(button == 11)
@@ -435,7 +478,7 @@ void stateCall()
     {
         UI.callDel();
     }
-    else if(button == 10)// call
+    else if(button == 10)           // call
     {
         Phone.makeCall();
         UI.callCount = 0;
@@ -473,6 +516,7 @@ void stateMsg()
         time1 = millis();
         msgState = UI.getMsgInputState();
 
+        
         if(msgState == 1)
         {
             UI.state_msg = MSG_STATE_NUM;
@@ -642,12 +686,53 @@ void disableTimer()
     //Timer1.stop();
 }
 
+// back light control
+bool flgBlStatus        = 0;
+unsigned long timerBlOn = 0;
+
+void blOn()
+{
+    flgBlStatus = 1;
+    digitalWrite(7, HIGH);
+    timerBlOn = millis();
+}
+
+void blOff()
+{
+    flgBlStatus = 0;
+    digitalWrite(7, LOW); 
+}
+
+void blClear()
+{
+    Serial.println("light cnt clear");
+    timerBlOn = millis();
+}
+
+// background light
+bool blProcess()
+{
+    if(flgBlStatus && (millis()-timerBlOn > SLEEPTIME)) // on and over 15s
+    {
+        UI.state = ST_SLEEP;
+        Serial.println("light off, SLEEP");
+        blOff();
+        return 1;
+    }
+    return 0;
+}
+
 //setup
 void setup()
 {
+    pinMode(7, OUTPUT);
+    blOn();
+    pinMode(2, INPUT);
+    digitalWrite(2, HIGH);
+    
     Phone.init();
     UI.init();
-    Timer1.initialize(1000000);                 // 500 ms
+    Timer1.initialize(1000000);                 // 1s
     Timer1.attachInterrupt(__serialEvent);      // attach the service routine here
 }
 
@@ -655,14 +740,16 @@ void setup()
 void loop()
 {
     stateMachine();
-    //while(Serial.available())Serial1.write(Serial.read());
-    //while(Serial1.available())Serial.write(Serial1.read());
+    blProcess();
+    // while(Serial.available())Serial1.write(Serial.read());
+    // while(Serial1.available())Serial.write(Serial1.read());
 }
 
 // serial event
 void __serialEvent()
 {
     disableTimer();         // disable timer irq
+    
     while (Serial1.available())
     {
         char inChar = (char)Serial1.read();

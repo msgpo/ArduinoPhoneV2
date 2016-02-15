@@ -38,6 +38,8 @@
 #define     PHONESOFTSERIAL     0
 #define     MSGTEST             0
 
+// sleep time
+#define     SLEEPTIME           5000L
 //
 #define DS1307_I2C_ADDRESS 0x68
 
@@ -135,6 +137,7 @@
 
 
 // state machine
+#define     ST_SLEEP            0x10
 #define     ST_IDLE             0X08
 #define     ST_TIME             0x01
 #define     ST_CALL             0x02
